@@ -5,8 +5,6 @@ import json
 import os
 from datetime import datetime
 
-#test
-
 # URL de base de l'API Hubeau
 BASE_URL = "https://hubeau.eaufrance.fr/api/v1/qualite_eau_potable/"
 
