@@ -10,6 +10,7 @@ from typing import Dict, Any, List
 # Imports Cloud essentiels
 import gcsfs
 from google.cloud import storage 
+# Assurez-vous que config.py est à jour avec les variables d'environnement
 from config import GCS_BUCKET_NAME, GCP_PROJECT_ID 
 
 
@@ -18,7 +19,7 @@ BASE_URL = "https://hubeau.eaufrance.fr/api/v1/qualite_eau_potable/"
 ENDPOINT = "communes_udi"
 
 # ----------------------------------------------------------------------
-# Fonction de Pagination (Inchangée)
+# Fonction de Pagination 
 # ----------------------------------------------------------------------
 
 def get_data_from_endpoint_paginated(params: dict = {}) -> list:
@@ -32,7 +33,7 @@ def get_data_from_endpoint_paginated(params: dict = {}) -> list:
     page = 1
     total_count = None
     
-    params['size'] = 20000 
+    params['size'] = 20000 # Taille maximale des pages
 
     while True:
         current_params = params.copy()
@@ -68,7 +69,7 @@ def get_data_from_endpoint_paginated(params: dict = {}) -> list:
 # Fonction d'Orchestration (Sauvegarde sur GCS)
 # ----------------------------------------------------------------------
 
-def main():
+def main_cloud_ready():
     """
     Orchestre l'extraction des UDI et les sauvegarde en Parquet sur GCS.
     """
@@ -76,7 +77,7 @@ def main():
         print("❌ Échec de l'extraction : GCS_BUCKET_NAME ou GCP_PROJECT_ID sont manquants.")
         sys.exit(1)
 
-    # NOUVEAU: BLOC DE DÉBOGAGE CRITIQUE GCSFS (Pour capturer l'erreur cryptique)
+    # BLOC DE DÉBOGAGE CRITIQUE GCSFS (Pour capturer l'erreur cryptique)
     try:
         print(f"DEBUG GCS: Tentative d'initialisation du système de fichiers pour le projet : {GCP_PROJECT_ID}")
         
@@ -84,12 +85,11 @@ def main():
         fs = gcsfs.GCSFileSystem(project=GCP_PROJECT_ID)
         
         # 2. Test de connexion simple (listage du dossier 'raw/')
-        # Si le listage échoue, c'est que l'authentification ou le chemin est incorrect
         fs.ls(f"{GCS_BUCKET_NAME}/raw/")
         
         print("DEBUG GCS: Connexion et listage du dossier 'raw/' réussis. Poursuite de l'extraction.")
     except Exception as e:
-        # Ceci devrait afficher la VRAIE cause de l'erreur 'b***/o/raw'
+        # Cette sortie devrait révéler la cause exacte de l'erreur 'b***/o/raw'
         print(f"FATAL: Échec critique de la connexion GCSFS. Ceci est la cause de l'erreur 'b***/o/raw'.")
         print(f"Détails de l'erreur GCSFS : {e}")
         sys.exit(1)
@@ -112,7 +112,6 @@ def main():
 
         # Sauvegarde en Parquet sur GCS
         try:
-            # Cette ligne est le point de défaillance précédent
             df.to_parquet(gcs_path, index=False, engine='pyarrow', compression='snappy')
             print(f"✅ Données UDI sauvegardées dans GCS : {gcs_path}")
             print(f"Total des enregistrements sauvegardés : {len(df)}\n")
