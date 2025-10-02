@@ -3,22 +3,66 @@
 import requests
 import os
 import sys
-import tempfile # Pour créer un fichier temporaire
+import tempfile # Nécessaire pour le contournement GCSFS
 from datetime import datetime
 import pandas as pd
+from typing import Dict, Any, List
 
 # Imports Cloud essentiels
-# Nous n'utiliserons plus gcsfs, mais le client natif
 from google.cloud import storage 
 from config import GCS_BUCKET_NAME 
-# Nous n'avons plus besoin de GCP_PROJECT_ID et GCP_CREDENTIALS_PATH ici, 
-# car le client 'storage' se charge seul de l'authentification dans l'environnement GHA.
+
 
 # URL de base de l'API Hubeau
 BASE_URL = "https://hubeau.eaufrance.fr/api/v1/qualite_eau_potable/"
 ENDPOINT = "communes_udi"
 
-# ... (Fonction get_data_from_endpoint_paginated inchangée) ...
+# ----------------------------------------------------------------------
+# Fonction de Pagination (Réinsérer cette fonction !)
+# ----------------------------------------------------------------------
+
+def get_data_from_endpoint_paginated(params: dict = {}) -> list:
+    """
+    Récupère toutes les données d'un point de terminaison de l'API en gérant la pagination.
+    """
+    url = f"{BASE_URL}{ENDPOINT}"
+    print(f"-> Récupération des données depuis l'endpoint : {url}")
+    
+    all_data = []
+    page = 1
+    total_count = None
+    
+    params['size'] = 20000 
+
+    while True:
+        current_params = params.copy()
+        current_params['page'] = page
+
+        try:
+            response = requests.get(url, params=current_params, timeout=60)
+            response.raise_for_status() 
+            
+            data = response.json()
+            results = data.get('data', [])
+            total_count = data.get('count', 0)
+            
+            all_data.extend(results)
+            print(f"   -> Page {page} récupérée. Total récupéré : {len(all_data)} sur {total_count}")
+            
+            if len(all_data) >= total_count:
+                print("   -> Toutes les données ont été récupérées.")
+                break
+            
+            page += 1
+
+        except requests.exceptions.Timeout:
+            print(f"Erreur de timeout après 60 secondes pour la page {page}.")
+            break
+        except requests.exceptions.RequestException as e:
+            print(f"Erreur lors de la requête vers {url}: {e}")
+            break
+            
+    return all_data
 
 # ----------------------------------------------------------------------
 # Fonction d'Orchestration (Sauvegarde par Client Natif)
@@ -27,7 +71,7 @@ ENDPOINT = "communes_udi"
 def main_cloud_ready():
     """
     Orchestre l'extraction des UDI et les sauvegarde en Parquet sur GCS
-    via le client natif Google Cloud Storage.
+    via le client natif Google Cloud Storage (Contournement de GCSFS).
     """
     if not GCS_BUCKET_NAME:
         print("❌ Échec de l'extraction : GCS_BUCKET_NAME est manquant.")
@@ -35,7 +79,8 @@ def main_cloud_ready():
 
     print("Début du processus de récupération des UDI du département du Nord (59).")
     params = {"code_departement": "59"}
-    data = get_data_from_endpoint_paginated(params)
+    # L'erreur se produit à la ligne suivante:
+    data = get_data_from_endpoint_paginated(params) 
     
     if not data:
         print("❌ Aucune donnée n'a été récupérée. L'extraction s'arrête.")
@@ -53,11 +98,11 @@ def main_cloud_ready():
         with tempfile.TemporaryDirectory() as tmpdir:
             temp_local_path = os.path.join(tmpdir, "udi_temp.parquet")
             
-            # Sauvegarde locale du DataFrame en Parquet (utilise PyArrow)
+            # Sauvegarde locale du DataFrame en Parquet
             print(f"\n🔄 Sauvegarde temporaire locale de {len(df)} lignes vers {temp_local_path}")
             df.to_parquet(temp_local_path, index=False, engine='pyarrow', compression='snappy')
             
-            # Utilisation du client GCS natif (plus stable pour l'authentification)
+            # Utilisation du client GCS natif (plus stable)
             print(f"🔄 Début de l'envoi vers gs://{GCS_BUCKET_NAME}/{gcs_object_name}")
             storage_client = storage.Client()
             bucket = storage_client.bucket(GCS_BUCKET_NAME)
@@ -70,7 +115,6 @@ def main_cloud_ready():
             print(f"Total des enregistrements sauvegardés : {len(df)}\n")
 
     except Exception as e:
-        # Si cette étape échoue, c'est VRAIMENT un problème de permission
         print(f"❌ Erreur CRITIQUE lors de la sauvegarde GCS par client natif.")
         print(f"Détails de l'erreur : {e}")
         sys.exit(1)
