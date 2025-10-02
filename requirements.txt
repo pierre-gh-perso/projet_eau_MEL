@@ -1,0 +1,12 @@
+# requirements.txt
+
+# --- Core Dependencies ---
+requests
+pandas
+pyarrow
+
+
+# --- Google Cloud Dependencies ---
+google-cloud-storage
+google-cloud-bigquery
+gcsfs
