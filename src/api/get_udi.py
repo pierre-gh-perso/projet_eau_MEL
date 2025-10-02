@@ -11,7 +11,7 @@ from typing import Dict, Any, List
 import gcsfs
 from google.cloud import storage 
 # Assurez-vous que config.py est à jour avec les variables d'environnement
-from config import GCS_BUCKET_NAME, GCP_PROJECT_ID 
+from config import GCS_BUCKET_NAME, GCP_PROJECT_ID, GCP_CREDENTIALS_PATH
 
 
 # URL de base de l'API Hubeau
@@ -79,19 +79,26 @@ def main_cloud_ready():
 
     # BLOC DE DÉBOGAGE CRITIQUE GCSFS (Pour capturer l'erreur cryptique)
     try:
-        print(f"DEBUG GCS: Tentative d'initialisation du système de fichiers pour le projet : {GCP_PROJECT_ID}")
+        print(f"DEBUG GCS: Initialisation avec identifiants explicites...")
         
-        # 1. Initialisation GCSFS
-        fs = gcsfs.GCSFileSystem(project=GCP_PROJECT_ID)
+        # 1. Utiliser le chemin du fichier JSON pour l'authentification
+        if not GCP_CREDENTIALS_PATH:
+            raise ValueError("GOOGLE_APPLICATION_CREDENTIALS n'est pas défini.")
+            
+        # 2. Forcer gcsfs à utiliser le fichier de clés JSON (authentification la plus fiable)
+        fs = gcsfs.GCSFileSystem(
+            project=GCP_PROJECT_ID,
+            token=GCP_CREDENTIALS_PATH # <- LA CLÉ : Passe directement le chemin JSON
+        )
         
-        # 2. Test de connexion simple (listage du dossier 'raw/')
+        # 3. Test de connexion (maintenant qu'il est correctement authentifié)
+        # On peut laisser le test puisqu'on sait que le dossier raw existe.
         fs.ls(f"{GCS_BUCKET_NAME}/raw/")
         
-        print("DEBUG GCS: Connexion et listage du dossier 'raw/' réussis. Poursuite de l'extraction.")
+        print("DEBUG GCS: Connexion GCS réussie via fichier de clés JSON. Extraction autorisée.")
     except Exception as e:
-        # Cette sortie devrait révéler la cause exacte de l'erreur 'b***/o/raw'
-        print(f"FATAL: Échec critique de la connexion GCSFS. Ceci est la cause de l'erreur 'b***/o/raw'.")
-        print(f"Détails de l'erreur GCSFS : {e}")
+        # Ceci devrait arrêter de se produire !
+        print(f"FATAL: Échec CRITIQUE de la connexion GCSFS. Détails: {e}")
         sys.exit(1)
 
 
