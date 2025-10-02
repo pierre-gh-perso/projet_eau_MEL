@@ -59,7 +59,7 @@ def get_data_from_endpoint_paginated(params: Dict[str, Any] = {}) -> List[Dict[s
 # Fonction d'Orchestration (Sauvegarde sur GCS)
 # ----------------------------------------------------------------------
 
-def main_cloud_ready():
+def main():
     if GCS_BUCKET_NAME == "YOUR_DEFAULT_BUCKET_NAME_HERE":
         print("❌ Erreur: Veuillez configurer GCS_BUCKET_NAME dans config.py ou dans vos variables d'environnement.")
         sys.exit(1)

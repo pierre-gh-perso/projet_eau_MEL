@@ -11,8 +11,8 @@ try:
     # 1. Extraction (API -> GCS)
     # Les fonctions doivent lire l'API et sauvegarder le résultat directement sur GCS
     # --------------------------------------------------------------------------
-    from src.api.get_resultats_qualite import main_cloud_ready as extract_qualite_eau
-    from src.api.liste_communes import main as extract_communes_udi # Assurez-vous d'avoir ce script créé
+    from src.api.get_resultats_qualite import main as extract_qualite_eau
+    from src.etl.process_data_liste_communes import main as transform_communes_udi
     
     # --------------------------------------------------------------------------
     # 2. Transformation (GCS/raw -> GCS/processed)
@@ -42,7 +42,7 @@ def run_pipeline():
     # --- 1. EXTRACTION (API -> GCS/raw) ---
     try:
         print("\n--- ÉTAPE 1: Extraction des données API vers GCS (raw) ---")
-        extract_communes_udi()
+        transform_communes_udi()
         extract_qualite_eau()
         print("✅ Étape 1 complétée: Données brutes stockées dans GCS.")
     except Exception as e:
