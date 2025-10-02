@@ -9,7 +9,6 @@ from typing import Dict, Any, List
 
 # Imports Cloud essentiels
 import gcsfs
-# Importation de la librairie google.cloud.storage pour assurer l'initialisation du contexte
 from google.cloud import storage 
 from config import GCS_BUCKET_NAME, GCP_PROJECT_ID 
 
@@ -19,7 +18,7 @@ BASE_URL = "https://hubeau.eaufrance.fr/api/v1/qualite_eau_potable/"
 ENDPOINT = "communes_udi"
 
 # ----------------------------------------------------------------------
-# Fonction de Pagination 
+# Fonction de Pagination (Inchangée)
 # ----------------------------------------------------------------------
 
 def get_data_from_endpoint_paginated(params: dict = {}) -> list:
@@ -33,14 +32,13 @@ def get_data_from_endpoint_paginated(params: dict = {}) -> list:
     page = 1
     total_count = None
     
-    params['size'] = 20000 # Taille maximale des pages
+    params['size'] = 20000 
 
     while True:
         current_params = params.copy()
         current_params['page'] = page
 
         try:
-            # Ajout d'un timeout
             response = requests.get(url, params=current_params, timeout=60)
             response.raise_for_status() 
             
@@ -51,7 +49,6 @@ def get_data_from_endpoint_paginated(params: dict = {}) -> list:
             all_data.extend(results)
             print(f"   -> Page {page} récupérée. Total récupéré : {len(all_data)} sur {total_count}")
             
-            # Condition d'arrêt
             if len(all_data) >= total_count:
                 print("   -> Toutes les données ont été récupérées.")
                 break
@@ -71,7 +68,7 @@ def get_data_from_endpoint_paginated(params: dict = {}) -> list:
 # Fonction d'Orchestration (Sauvegarde sur GCS)
 # ----------------------------------------------------------------------
 
-def main_cloud_ready():
+def main():
     """
     Orchestre l'extraction des UDI et les sauvegarde en Parquet sur GCS.
     """
@@ -79,13 +76,22 @@ def main_cloud_ready():
         print("❌ Échec de l'extraction : GCS_BUCKET_NAME ou GCP_PROJECT_ID sont manquants.")
         sys.exit(1)
 
-    # NOUVEAU: Initialisation explicite de la session GCSFS (Correction de l'erreur 'b***/o/raw')
+    # NOUVEAU: BLOC DE DÉBOGAGE CRITIQUE GCSFS (Pour capturer l'erreur cryptique)
     try:
-        # Ceci force gcsfs à utiliser le contexte d'authentification fourni par GitHub Actions
+        print(f"DEBUG GCS: Tentative d'initialisation du système de fichiers pour le projet : {GCP_PROJECT_ID}")
+        
+        # 1. Initialisation GCSFS
         fs = gcsfs.GCSFileSystem(project=GCP_PROJECT_ID)
-        print("DEBUG: Contexte GCSFS initialisé avec succès pour la lecture/écriture Cloud.")
+        
+        # 2. Test de connexion simple (listage du dossier 'raw/')
+        # Si le listage échoue, c'est que l'authentification ou le chemin est incorrect
+        fs.ls(f"{GCS_BUCKET_NAME}/raw/")
+        
+        print("DEBUG GCS: Connexion et listage du dossier 'raw/' réussis. Poursuite de l'extraction.")
     except Exception as e:
-        print(f"FATAL: Échec de l'initialisation GCSFS : {e}")
+        # Ceci devrait afficher la VRAIE cause de l'erreur 'b***/o/raw'
+        print(f"FATAL: Échec critique de la connexion GCSFS. Ceci est la cause de l'erreur 'b***/o/raw'.")
+        print(f"Détails de l'erreur GCSFS : {e}")
         sys.exit(1)
 
 
@@ -106,14 +112,13 @@ def main_cloud_ready():
 
         # Sauvegarde en Parquet sur GCS
         try:
-            # Pandas utilise l'instance gcsfs configurée en arrière-plan
+            # Cette ligne est le point de défaillance précédent
             df.to_parquet(gcs_path, index=False, engine='pyarrow', compression='snappy')
             print(f"✅ Données UDI sauvegardées dans GCS : {gcs_path}")
             print(f"Total des enregistrements sauvegardés : {len(df)}\n")
 
         except Exception as e:
-            print(f"❌ Erreur lors de la sauvegarde GCS. Vérifiez les permissions du Compte de Service.")
-            print(f"Détails de l'erreur : {e}")
+            print(f"❌ Erreur lors de la sauvegarde GCS. La connexion a réussi, mais l'écriture a échoué. Détails : {e}")
             sys.exit(1)
     else:
         print("❌ Aucune donnée n'a été récupérée. L'extraction s'arrête.")
