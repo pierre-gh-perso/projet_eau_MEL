@@ -3,16 +3,21 @@
 import requests
 import json
 import os
+import sys
 from datetime import datetime
-import pandas as pd # Reste utile pour la conversion
-import pyarrow as pa
-import pyarrow.parquet as pq
+import pandas as pd
+from typing import Dict, Any, List
+from config import GCS_BUCKET_NAME 
 
 # URL du point de terminaison pour les résultats d'analyse
 BASE_URL = "https://hubeau.eaufrance.fr/api/v1/qualite_eau_potable/"
 ENDPOINT = "resultats_dis"
 
-def get_data_from_endpoint_paginated(params: dict = {}) -> list:
+# ----------------------------------------------------------------------
+# Fonction d'Extraction (Pagination)
+# ----------------------------------------------------------------------
+
+def get_data_from_endpoint_paginated(params: Dict[str, Any] = {}) -> List[Dict[str, Any]]:
     url = f"{BASE_URL}{ENDPOINT}"
     print(f"-> Récupération des données depuis l'endpoint : {url}")
 
@@ -28,15 +33,16 @@ def get_data_from_endpoint_paginated(params: dict = {}) -> list:
 
         try:
             response = requests.get(url, params=current_params)
-            response.raise_for_status()
+            response.raise_for_status() # Lève une exception si le statut est une erreur (4xx ou 5xx)
 
             data = response.json()
             results = data.get('data', [])
             total_count = data.get('count', 0)
 
             all_data.extend(results)
-            print(f"   -> Page {page} récupérée. Enregistrements : {len(results)}. Total récupéré : {len(all_data)} sur {total_count}")
+            print(f"   -> Page {page} récupérée. Total: {len(all_data)} sur {total_count}")
 
+            # Condition d'arrêt de la boucle
             if len(all_data) >= total_count:
                 print("   -> Toutes les données ont été récupérées.")
                 break
@@ -49,28 +55,44 @@ def get_data_from_endpoint_paginated(params: dict = {}) -> list:
 
     return all_data
 
-def main():
-    raw_dir = 'data/raw'
-    os.makedirs(raw_dir, exist_ok=True)
+# ----------------------------------------------------------------------
+# Fonction d'Orchestration (Sauvegarde sur GCS)
+# ----------------------------------------------------------------------
 
-    params = {"code_departement": "59", "nom_distributeur":"ILEO"}
+def main_cloud_ready():
+    if GCS_BUCKET_NAME == "YOUR_DEFAULT_BUCKET_NAME_HERE":
+        print("❌ Erreur: Veuillez configurer GCS_BUCKET_NAME dans config.py ou dans vos variables d'environnement.")
+        sys.exit(1)
 
-    print("Début du processus de récupération des résultats de qualité de l'eau pour le département du Nord (59).")
+    # Paramètres spécifiques pour le département 59
+    params = {"code_departement": "59"}
+
+    print("Début du processus de récupération des résultats de qualité de l'eau pour le Nord (59).")
     data = get_data_from_endpoint_paginated(params)
 
     if data:
-        # Nom du fichier de sortie avec un horodatage
+        df = pd.DataFrame(data)
+
+        # Définition du chemin GCS pour le stockage du RAW Data
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = os.path.join(raw_dir, f"qualite_eau_{timestamp}.json")
+        # Chemin GCS : gs://VOTRE_BUCKET/raw/qualite_eau_YYYYMMDD_HHMMSS.parquet
+        gcs_path = f"gs://{GCS_BUCKET_NAME}/raw/qualite_eau_{timestamp}.parquet"
 
-        # Sauvegarde de la liste de dictionnaires au format JSON
-        with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+        print(f"\n🔄 Sauvegarde du DataFrame ({len(df)} lignes) vers GCS : {gcs_path}")
 
-        print(f"✅ Données pour '{ENDPOINT}' sauvegardées dans {output_file}")
-        print(f"Total des enregistrements : {len(data)}\n")
+        # Sauvegarde en Parquet sur GCS (Pandas utilise 'gcsfs' automatiquement pour gs://)
+        try:
+            df.to_parquet(gcs_path, index=False, engine='pyarrow', compression='snappy')
+            print(f"✅ Données de qualité sauvegardées dans GCS : {gcs_path}")
+            print(f"Total des enregistrements sauvegardés : {len(df)}\n")
+
+        except Exception as e:
+            print(f"❌ Erreur lors de la sauvegarde GCS. Vérifiez vos permissions et la configuration PyArrow/gcsfs.")
+            print(f"Détails de l'erreur : {e}")
+            sys.exit(1)
     else:
-        print("❌ Aucune donnée n'a été récupérée. Vérifiez la connexion ou les paramètres de l'API.")
+        print("❌ Aucune donnée n'a été récupérée. L'extraction s'arrête.")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    main_cloud_ready()

@@ -1,0 +1,76 @@
+# .github/workflows/main_etl.yml
+
+name: ETL Eau Potable - Hubeau vers BigQuery
+
+# -----------------------------------------------------
+# Déclenchement du Workflow
+# -----------------------------------------------------
+on:
+  # 1. Déclenchement au 'push' sur la branche 'main' (ou 'master')
+  push:
+    branches: [ main ]
+
+  # 2. Déclenchement planifié (récurrent)
+  schedule:
+    # Cron format: m h dom mon dow
+    - cron: '0 23 * * 5'
+    
+  # 3. Déclenchement manuel
+  workflow_dispatch:
+
+jobs:
+  run_etl:
+    # Utilise une machine virtuelle Linux (rapide et gratuite)
+    runs-on: ubuntu-latest 
+
+    steps:
+      # Étape 1: Cloner le dépôt
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Étape 2: Configurer Python (s'assurer de la bonne version)
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          
+      # Étape 3: Installer les dépendances
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Installation des librairies de base + les librairies Cloud (GCS, BigQuery, Pandas/Pyarrow Cloud-Ready)
+          pip install requests pandas pyarrow gcsfs google-cloud-storage google-cloud-bigquery
+
+      # -----------------------------------------------------
+      # AUTHENTIFICATION GCP (Étape CRUCIALE)
+      # -----------------------------------------------------
+      # Étape 4: Authentification auprès de Google Cloud
+      - id: 'auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          # Utilise la clé JSON que vous avez stockée dans GitHub Secrets
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+          
+      # -----------------------------------------------------
+      # INJECTION DES VARIABLES D'ENVIRONNEMENT POUR PYTHON
+      # -----------------------------------------------------
+      # Étape 5: Définir les variables d'environnement pour le script Python
+      - name: Set Environment Variables for Python
+        env:
+          # Injecte la valeur du secret dans la variable d'environnement GCP_PROJECT_ID
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          # Injecte le nom du bucket (peut être un secret ou, pour le moment, une valeur statique)
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+        run: |
+          # Ces commandes mettent à disposition les variables d'environnement dans le shell
+          echo "GCP_PROJECT_ID=${{ secrets.GCP_PROJECT_ID }}" >> $GITHUB_ENV
+          echo "GCS_BUCKET_NAME=${{ secrets.GCS_BUCKET_NAME }}" >> $GITHUB_ENV
+
+      # -----------------------------------------------------
+      # EXÉCUTION DU PIPELINE
+      # -----------------------------------------------------
+      # Étape 6: Exécuter le pipeline Python
+      - name: Run ETL Pipeline
+        # Exécute l'orchestrateur principal
+        run: |
+          python main.py
