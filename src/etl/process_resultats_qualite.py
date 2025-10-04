@@ -97,40 +97,38 @@ def save_df_to_gcs(df: pd.DataFrame, bucket_name: str, table_name: str):
 def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame) -> Dict[str, pd.DataFrame]:
     """
     Filtre, nettoie et normalise les données brutes en 4 DataFrames (tables).
-    Utilise df_qualite pour les faits et df_udi pour certaines dimensions.
     """
     print("   -> Début du nettoyage et de la normalisation...")
 
-    # 1. Préparation et Filtrage
+    # 1. Préparation et Filtrage (Inchangé)
+    # On filtre les résultats de qualité (le plus gros DF)
     df_qualite['code_commune'] = df_qualite['code_commune'].astype(str).str.zfill(5)
-    
-    # Filtrage des résultats de qualité pour la MEL (utilise la liste statique)
     mel_qualite_df = df_qualite[df_qualite['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
     print(f"   -> Enregistrements filtrés pour la MEL : {len(mel_qualite_df)}")
     
     if mel_qualite_df.empty:
         raise ValueError("Aucun résultat de qualité trouvé pour les communes de la MEL après filtrage.")
 
-    # Définition des clés
+    # Définition des clés (Inchangé)
     mel_qualite_df['code_prelevement'] = mel_qualite_df['code_prelevement'].astype(str)
     mel_qualite_df['code_parametre'] = mel_qualite_df['code_parametre'].astype(str)
 
+    # Filtrons également le DF UDI pour la propreté (c'est le DF que nous utilisons pour la dimension UDI)
+    df_udi['code_commune'] = df_udi['code_commune'].astype(str).str.zfill(5)
+    mel_udi_df = df_udi[df_udi['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
+
     # --- Construction des 4 tables ---
 
-    # 1. Table PARAMÈTRES (Dimension) - Utilisé le DF UDI car il contient les infos de paramètres les plus complètes
-    # Assurons-nous que df_udi contient les colonnes de paramètres
-    params_udi_cols = [
+    # 1. Table PARAMÈTRES (Dimension) - CORRIGÉ : utilise mel_qualite_df
+    params_cols = [
         'code_parametre', 'libelle_parametre', 'code_type_parametre', 
         'libelle_type_parametre', 'code_parametre_se'
     ]
-    # Filtrez le DF UDI pour les communes MEL pour être propre
-    mel_udi_df = df_udi[df_udi['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
-    
-    # La ligne qui causait l'erreur vient d'ici. On s'assure qu'on l'extrait du DF UDI.
-    df_parametres = mel_udi_df[params_udi_cols].drop_duplicates().reset_index(drop=True)
+    # Nous utilisons mel_qualite_df car elle contient toutes les descriptions des paramètres
+    df_parametres = mel_qualite_df[params_cols].drop_duplicates(subset=['code_parametre']).reset_index(drop=True)
     
     
-    # 2. Table PRÉLÈVEMENTS (Dimension) - Utilise le DF Qualité
+    # 2. Table PRÉLÈVEMENTS (Dimension) - Utilise mel_qualite_df (Inchangé)
     prelevement_cols = [
         'code_prelevement', 'code_commune', 'date_prelevement', 'nom_uge', 
         'nom_distributeur', 'nom_moa', 'conclusion_conformite', 'conformite_limites_bact'
@@ -138,7 +136,7 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
     df_prelevements = mel_qualite_df[prelevement_cols].drop_duplicates(subset=['code_prelevement']).reset_index(drop=True)
     
     
-    # 3. Table RÉSULTATS_MESURES (Fait) - Utilise le DF Qualité
+    # 3. Table RÉSULTATS_MESURES (Fait) - Utilise mel_qualite_df (Inchangé)
     mesures_cols = [
         'code_prelevement', 'code_parametre', 'resultat_numerique', 
         'resultat_alphanumerique', 'libelle_unite', 'limite_qualite_parametre'
@@ -146,11 +144,12 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
     df_mesures = mel_qualite_df[mesures_cols].drop_duplicates(subset=['code_prelevement', 'code_parametre']).reset_index(drop=True)
 
     
-    # 4. Table COMMUNES_UDI (Dimension) - Utilise le DF UDI
+    # 4. Table COMMUNES_UDI (Dimension) - Utilise mel_udi_df (Inchangé)
     communes_udi_cols = [
         'code_commune', 'code_udi', 'libelle_udi', 'nom_commune',
         'code_service', 'nom_service' 
     ]
+    # Nous utilisons mel_udi_df car elle contient les informations UDI
     df_communes_udi = mel_udi_df[communes_udi_cols].drop_duplicates().reset_index(drop=True)
 
     print("   -> Nettoyage et normalisation terminés.")
