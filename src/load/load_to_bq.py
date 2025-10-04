@@ -7,7 +7,8 @@ import io
 from google.cloud import bigquery
 from google.api_core import exceptions
 import gcsfs 
-from typing import List, Tuple
+from typing import List, Dict
+
 
 # Importation des variables d'environnement de la configuration
 try:
