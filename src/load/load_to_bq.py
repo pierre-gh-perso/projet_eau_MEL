@@ -100,7 +100,6 @@ def load_processed_data_to_bigquery(project_id: str, dataset_id: str, gcs_bucket
         print(f"   ✅ Dataset '{dataset_id}' créé.")
 
     # Les 4 noms de tables à charger
-    # ATTENTION : Correction du nom de fichier !
     table_names = ['prelevements', 'parametres', 'communes_reseau', 'resultats_mesures']
     
     # 2. Chargement des tables
@@ -109,10 +108,12 @@ def load_processed_data_to_bigquery(project_id: str, dataset_id: str, gcs_bucket
         gcs_file_path = f"gs://{gcs_bucket}/processed/{table_name}.parquet"
         table_id = f"{project_id}.{dataset_id}.{table_name}"
         
-        # Déterminer la disposition d'écriture : APPEND pour les Faits, TRUNCATE pour les Dimensions
-        write_mode = bigquery.WriteDisposition.WRITE_APPEND if table_name in TABLE_PRIMARY_KEYS else bigquery.WriteDisposition.WRITE_TRUNCATE
+        # Déterminer la disposition d'écriture
+        write_mode_object = bigquery.WriteDisposition.WRITE_APPEND if table_name in TABLE_PRIMARY_KEYS else bigquery.WriteDisposition.WRITE_TRUNCATE
         
-        print(f"\n🔄 Traitement de la table '{table_name}' (Mode: {write_mode.value.split('_')[1]})")
+        # Correction de l'affichage : On utilise l'objet pour l'affichage et la configuration
+        # Le .name donne 'WRITE_APPEND' ou 'WRITE_TRUNCATE', et .split('_')[1] donne 'APPEND' ou 'TRUNCATE'
+        print(f"\n🔄 Traitement de la table '{table_name}' (Mode: {write_mode_object.name.split('_')[1]})")
         
         try:
             # A. LECTURE & DÉDUPLICATION
@@ -123,7 +124,7 @@ def load_processed_data_to_bigquery(project_id: str, dataset_id: str, gcs_bucket
                 table_id
             )
 
-            # Si le DataFrame est vide après déduplication, on passe
+            # ... (vérification df_to_load.empty inchangée) ...
             if df_to_load.empty:
                 print(f"   ℹ️ Aucune nouvelle ligne à charger pour la table {table_name}. Skip.")
                 continue
