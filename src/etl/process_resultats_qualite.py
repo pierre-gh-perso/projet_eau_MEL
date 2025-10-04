@@ -34,7 +34,7 @@ MEL_COMMUNES_INSEE = [
 storage_client = storage.Client()
 
 # ----------------------------------------------------------------------
-# Fonctions utilitaires GCS (Inchangées - utilisent le client natif)
+# Fonctions utilitaires GCS (Inchangées)
 # ----------------------------------------------------------------------
 
 def get_latest_gcs_path(bucket_name: str, prefix: str, folder: str = "raw") -> str:
@@ -60,7 +60,7 @@ def read_parquet_from_gcs(bucket_name: str, object_name: str) -> pd.DataFrame:
     bucket = storage_client.bucket(bucket_name)
     blob = bucket.blob(object_name)
     
-    print(f"   -> Téléchargement de gs://{bucket_name}/{object_name}")
+    print(f"   -> Téléchargement de gs://{bucket_name}/{object_name}")
     blob_bytes = blob.download_as_bytes()
     
     return pd.read_parquet(io.BytesIO(blob_bytes))
@@ -69,10 +69,9 @@ def save_df_to_gcs(df: pd.DataFrame, bucket_name: str, table_name: str):
     """
     Sauvegarde un DataFrame en Parquet dans le dossier GCS/processed.
     """
-    # Ajout du timestamp pour l'historisation des tables dimensionnelles si nécessaire,
-    # mais pour simplifier ici, on écrase avec le nom de la table
+    # NOTE IMPORTANTE : Le nom du fichier est construit ici : 'processed/communes_reseau.parquet'
     gcs_object_name = f"processed/{table_name}.parquet" 
-    print(f"   -> Sauvegarde de {len(df)} lignes dans gs://{bucket_name}/{gcs_object_name}")
+    print(f"   -> Sauvegarde de {len(df)} lignes dans gs://{bucket_name}/{gcs_object_name}")
     
     buffer = io.BytesIO()
     df.to_parquet(buffer, index=False, engine='pyarrow', compression='snappy')
@@ -82,7 +81,7 @@ def save_df_to_gcs(df: pd.DataFrame, bucket_name: str, table_name: str):
     blob = bucket.blob(gcs_object_name)
     blob.upload_from_file(buffer, content_type='application/octet-stream')
     
-    print(f"   ✅ Table {table_name} sauvegardée.")
+    print(f"   ✅ Table {table_name} sauvegardée.")
 
 # ----------------------------------------------------------------------
 # Logique de Transformation et Normalisation
@@ -92,12 +91,13 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
     """
     Filtre, nettoie et normalise les données brutes en tables finales.
     """
-    print("   -> Début du nettoyage et de la normalisation...")
+    print("   -> Début du nettoyage et de la normalisation...")
 
-    # 1. Préparation et Filtrage des Résultats de Qualité (Le DF le plus important)
+    # 1. Préparation et FILTRAGE des Résultats de Qualité (Table de faits principale)
+    # TOUTES les tables générées à partir de mel_qualite_df sont donc déjà filtrées
     df_qualite['code_commune'] = df_qualite['code_commune'].astype(str).str.zfill(5)
     mel_qualite_df = df_qualite[df_qualite['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
-    print(f"   -> Enregistrements filtrés pour la MEL : {len(mel_qualite_df)}")
+    print(f"   -> Enregistrements filtrés pour la MEL : {len(mel_qualite_df)}")
     
     if mel_qualite_df.empty:
         raise ValueError("Aucun résultat de qualité trouvé pour les communes de la MEL après filtrage.")
@@ -106,24 +106,24 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
     mel_qualite_df['code_prelevement'] = mel_qualite_df['code_prelevement'].astype(str)
     mel_qualite_df['code_parametre'] = mel_qualite_df['code_parametre'].astype(str)
 
-    # Filtrage du DF UDI (pour les infos de réseau/commune)
+    # 2. FILTRAGE du DF UDI (pour les infos de réseau/commune)
     df_udi['code_commune'] = df_udi['code_commune'].astype(str).str.zfill(5)
     mel_udi_df = df_udi[df_udi['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
 
 
-    # --- Construction des 4 tables (Adaptées aux schémas réels) ---
+    # --- Construction des 4 tables (Filtrées et Dénormalisées) ---
 
-    # 1. Table PARAMÈTRES (Dimension) - Utilise mel_qualite_df (CORRIGÉ)
+    # 1. Table PARAMÈTRES (Dimension) - Utilise mel_qualite_df 
+    # NOTE: Ne contient pas code_commune, car c'est une liste de paramètres
     params_cols = [
         'code_parametre', 'libelle_parametre', 'code_type_parametre', 
-        'code_parametre_se', 'libelle_parametre_maj' # Colonne trouvée dans le schéma
+        'code_parametre_se', 'libelle_parametre_maj' 
     ]
-    # Nous utilisons mel_qualite_df car elle contient toutes les descriptions des paramètres
     df_parametres = mel_qualite_df[params_cols].drop_duplicates(subset=['code_parametre']).reset_index(drop=True)
     
     
     # 2. Table PRÉLÈVEMENTS (Dimension) - Utilise mel_qualite_df 
-    # NOTE: date_prelevement est un objet dans le raw, il faudra le convertir pour l'entrepot
+    # NOTE: Cette table contient le code_commune, vous pouvez valider le filtrage ici.
     prelevement_cols = [
         'code_prelevement', 'code_commune', 'date_prelevement', 'nom_uge', 
         'nom_distributeur', 'nom_moa', 'conclusion_conformite_prelevement', 
@@ -140,61 +140,52 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
     df_mesures = mel_qualite_df[mesures_cols].drop_duplicates(subset=['code_prelevement', 'code_parametre']).reset_index(drop=True)
 
     
-    # 4. Table COMMUNES_RESEAU (Dimension) - Utilise mel_udi_df (RENOMMÉ et CORRIGÉ)
-    # L'API UDI ne donne pas d'infos UDI/Service, seulement le réseau
+    # 4. Table COMMUNES_RESEAU (Dimension) - Utilise mel_udi_df 
+    # RENOMMÉ : Conserve le nom 'communes_reseau' pour le fichier
     communes_reseau_cols = [
         'code_commune', 'nom_commune', 'code_reseau', 'nom_reseau', 'debut_alim' 
     ]
-    # Nous utilisons mel_udi_df
     df_communes_reseau = mel_udi_df[communes_reseau_cols].drop_duplicates().reset_index(drop=True)
 
-    print("   -> Nettoyage et normalisation terminés.")
+    print("   -> Nettoyage et normalisation terminés.")
     
     return {
         'parametres': df_parametres,
         'prelevements': df_prelevements,
         'resultats_mesures': df_mesures,
-        'communes_reseau': df_communes_reseau # Nom de la table mis à jour
+        'communes_reseau': df_communes_reseau # Clé utilisée pour nommer le fichier communes_reseau.parquet
     }
 
 # ----------------------------------------------------------------------
-# Orchestrateur Principal
+# Orchestrateur Principal (Inchangé)
 # ----------------------------------------------------------------------
 
 def main_cloud_ready():
     """
     Orchestre le T de l'ETL : Lecture GCS (2 fichiers), Transformation, Écriture GCS (4 tables).
     """
-    # Utilisation de la méthode de lecture adaptée au client natif
     if not GCS_BUCKET_NAME or not GCP_PROJECT_ID:
         print("❌ Échec de l'étape de transformation: Les variables d'environnement sont manquantes.")
         sys.exit(1)
 
     print(f"✅ Liste statique des codes INSEE de la MEL chargée : {len(MEL_COMMUNES_INSEE)} communes.") 
 
-    # ------------------------------------------------------
     # 1. Lecture des Données D'ENTRÉE (GCS)
-    # ------------------------------------------------------
     try:
-        # a) Lecture du fichier UDI
         udi_object_name = get_latest_gcs_path(GCS_BUCKET_NAME, "udi_mel")
         df_udi = read_parquet_from_gcs(GCS_BUCKET_NAME, udi_object_name)
-        print(f"   ✅ {len(df_udi)} enregistrements UDI bruts chargés.")
+        print(f"   ✅ {len(df_udi)} enregistrements UDI bruts chargés.")
 
-        # b) Lecture du fichier Résultats de Qualité
         qualite_object_name = get_latest_gcs_path(GCS_BUCKET_NAME, "qualite_eau")
         df_qualite = read_parquet_from_gcs(GCS_BUCKET_NAME, qualite_object_name)
-        print(f"   ✅ {len(df_qualite)} enregistrements de qualité bruts chargés.")
+        print(f"   ✅ {len(df_qualite)} enregistrements de qualité bruts chargés.")
         
     except Exception as e:
-        # L'erreur de connexion GCSFS ne devrait plus se produire ici
         print(f"❌ Échec de la lecture des fichiers bruts depuis GCS : {e}.")
         sys.exit(1)
 
 
-    # ------------------------------------------------------
     # 2. Transformation et Normalisation
-    # ------------------------------------------------------
     try:
         tables_dict = transform_and_normalize_data(df_qualite, df_udi)
         print("✅ Normalisation terminée. 4 tables prêtes pour le chargement.")
@@ -204,9 +195,7 @@ def main_cloud_ready():
         sys.exit(1)
         
     
-    # ------------------------------------------------------
     # 3. Écriture des 4 tables de Sortie (GCS/processed)
-    # ------------------------------------------------------
     print("\n--- Écriture des 4 tables normalisées vers GCS/processed ---")
     
     for table_name, df in tables_dict.items():
