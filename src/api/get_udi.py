@@ -7,6 +7,7 @@ import tempfile # Nécessaire pour le contournement GCSFS
 from datetime import datetime
 import pandas as pd
 from typing import Dict, Any, List
+import time
 
 # Imports Cloud essentiels
 from google.cloud import storage 
@@ -54,6 +55,8 @@ def get_data_from_endpoint_paginated(params: dict = {}) -> list:
                 break
             
             page += 1
+
+            time.sleep(1)
 
         except requests.exceptions.Timeout:
             print(f"Erreur de timeout après 60 secondes pour la page {page}.")

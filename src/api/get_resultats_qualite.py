@@ -9,6 +9,7 @@ from google.cloud import storage
 import pandas as pd
 from typing import Dict, Any, List
 from config import GCS_BUCKET_NAME 
+import time
 
 # URL du point de terminaison pour les résultats d'analyse
 BASE_URL = "https://hubeau.eaufrance.fr/api/v1/qualite_eau_potable/"
@@ -49,6 +50,8 @@ def get_data_from_endpoint_paginated(params: Dict[str, Any] = {}) -> List[Dict[s
                 break
 
             page += 1
+
+            time.sleep(1)
 
         except requests.exceptions.RequestException as e:
             print(f"Erreur lors de la requête vers {url}: {e}")
