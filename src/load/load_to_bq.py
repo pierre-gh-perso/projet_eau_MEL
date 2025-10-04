@@ -111,9 +111,9 @@ def load_processed_data_to_bigquery(project_id: str, dataset_id: str, gcs_bucket
         # Déterminer la disposition d'écriture
         write_mode_object = bigquery.WriteDisposition.WRITE_APPEND if table_name in TABLE_PRIMARY_KEYS else bigquery.WriteDisposition.WRITE_TRUNCATE
         
-        # Correction de l'affichage : On utilise l'objet pour l'affichage et la configuration
-        # Le .name donne 'WRITE_APPEND' ou 'WRITE_TRUNCATE', et .split('_')[1] donne 'APPEND' ou 'TRUNCATE'
-        print(f"\n🔄 Traitement de la table '{table_name}' (Mode: {write_mode_object.name.split('_')[1]})")
+        write_mode_str = str(write_mode_object) 
+        
+        print(f"\n🔄 Traitement de la table '{table_name}' (Mode: {write_mode_str.split('_')[1]})")
         
         try:
             # A. LECTURE & DÉDUPLICATION
@@ -124,7 +124,6 @@ def load_processed_data_to_bigquery(project_id: str, dataset_id: str, gcs_bucket
                 table_id
             )
 
-            # ... (vérification df_to_load.empty inchangée) ...
             if df_to_load.empty:
                 print(f"   ℹ️ Aucune nouvelle ligne à charger pour la table {table_name}. Skip.")
                 continue
