@@ -34,7 +34,7 @@ MEL_COMMUNES_INSEE = [
 storage_client = storage.Client()
 
 # ----------------------------------------------------------------------
-# Fonctions utilitaires GCS (Inchangées)
+# Fonctions utilitaires GCS (AJOUT DE LA FONCTION DE NETTOYAGE)
 # ----------------------------------------------------------------------
 
 def get_latest_gcs_path(bucket_name: str, prefix: str, folder: str = "raw") -> str:
@@ -69,7 +69,6 @@ def save_df_to_gcs(df: pd.DataFrame, bucket_name: str, table_name: str):
     """
     Sauvegarde un DataFrame en Parquet dans le dossier GCS/processed.
     """
-    # NOTE IMPORTANTE : Le nom du fichier est construit ici : 'processed/communes_reseau.parquet'
     gcs_object_name = f"processed/{table_name}.parquet" 
     print(f"   -> Sauvegarde de {len(df)} lignes dans gs://{bucket_name}/{gcs_object_name}")
     
@@ -83,8 +82,40 @@ def save_df_to_gcs(df: pd.DataFrame, bucket_name: str, table_name: str):
     
     print(f"   ✅ Table {table_name} sauvegardée.")
 
+def cleanup_old_gcs_files(bucket_name: str, latest_object_names: List[str]):
+    """
+    Supprime toutes les versions antérieures des fichiers bruts dans GCS/raw.
+    Garde uniquement les fichiers dont les noms sont dans latest_object_names.
+    """
+    bucket = storage_client.bucket(bucket_name)
+    print("\n🧹 Début du nettoyage des anciennes données brutes (GCS/raw)...")
+    
+    # 1. Lister tous les blobs bruts
+    all_raw_blobs = list(bucket.list_blobs(prefix="raw/"))
+    
+    # Extraire uniquement les noms d'objets (ex: 'raw/qualite_eau_20251004_070622.parquet')
+    latest_blobs_to_keep = set(latest_object_names)
+    
+    # 2. Identifier les fichiers à supprimer
+    blobs_to_delete = [
+        blob for blob in all_raw_blobs 
+        if blob.name.endswith('.parquet') and blob.name not in latest_blobs_to_keep
+    ]
+    
+    if not blobs_to_delete:
+        print("   -> Aucun ancien fichier brut trouvé à supprimer.")
+        return
+
+    # 3. Suppression
+    for blob in blobs_to_delete:
+        print(f"   -> Suppression de : gs://{bucket_name}/{blob.name}")
+        blob.delete()
+        
+    print(f"   ✅ Nettoyage GCS terminé. {len(blobs_to_delete)} anciens fichiers supprimés.")
+
+
 # ----------------------------------------------------------------------
-# Logique de Transformation et Normalisation
+# Logique de Transformation et Normalisation (Inchangée)
 # ----------------------------------------------------------------------
 
 def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame) -> Dict[str, pd.DataFrame]:
@@ -92,17 +123,12 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
     Filtre, nettoie et normalise les données brutes en tables finales.
     """
     print("   -> Début du nettoyage et de la normalisation...")
-
     # 1. Préparation et FILTRAGE des Résultats de Qualité (Table de faits principale)
-    # TOUTES les tables générées à partir de mel_qualite_df sont donc déjà filtrées
     df_qualite['code_commune'] = df_qualite['code_commune'].astype(str).str.zfill(5)
     mel_qualite_df = df_qualite[df_qualite['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
     print(f"   -> Enregistrements filtrés pour la MEL : {len(mel_qualite_df)}")
-    
     if mel_qualite_df.empty:
         raise ValueError("Aucun résultat de qualité trouvé pour les communes de la MEL après filtrage.")
-
-    # Nettoyage des clés pour les jointures futures
     mel_qualite_df['code_prelevement'] = mel_qualite_df['code_prelevement'].astype(str)
     mel_qualite_df['code_parametre'] = mel_qualite_df['code_parametre'].astype(str)
 
@@ -110,41 +136,17 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
     df_udi['code_commune'] = df_udi['code_commune'].astype(str).str.zfill(5)
     mel_udi_df = df_udi[df_udi['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
 
-
     # --- Construction des 4 tables (Filtrées et Dénormalisées) ---
-
-    # 1. Table PARAMÈTRES (Dimension) - Utilise mel_qualite_df 
-    # NOTE: Ne contient pas code_commune, car c'est une liste de paramètres
-    params_cols = [
-        'code_parametre', 'libelle_parametre', 'code_type_parametre', 
-        'code_parametre_se', 'libelle_parametre_maj' 
-    ]
+    params_cols = ['code_parametre', 'libelle_parametre', 'code_type_parametre', 'code_parametre_se', 'libelle_parametre_maj'] 
     df_parametres = mel_qualite_df[params_cols].drop_duplicates(subset=['code_parametre']).reset_index(drop=True)
     
-    
-    # 2. Table PRÉLÈVEMENTS (Dimension) - Utilise mel_qualite_df 
-    # NOTE: Cette table contient le code_commune, vous pouvez valider le filtrage ici.
-    prelevement_cols = [
-        'code_prelevement', 'code_commune', 'date_prelevement', 'nom_uge', 
-        'nom_distributeur', 'nom_moa', 'conclusion_conformite_prelevement', 
-        'conformite_limites_bact_prelevement'
-    ]
+    prelevement_cols = ['code_prelevement', 'code_commune', 'date_prelevement', 'nom_uge', 'nom_distributeur', 'nom_moa', 'conclusion_conformite_prelevement', 'conformite_limites_bact_prelevement']
     df_prelevements = mel_qualite_df[prelevement_cols].drop_duplicates(subset=['code_prelevement']).reset_index(drop=True)
     
-    
-    # 3. Table RÉSULTATS_MESURES (Fait) - Utilise mel_qualite_df
-    mesures_cols = [
-        'code_prelevement', 'code_parametre', 'resultat_numerique', 
-        'resultat_alphanumerique', 'libelle_unite', 'limite_qualite_parametre'
-    ]
+    mesures_cols = ['code_prelevement', 'code_parametre', 'resultat_numerique', 'resultat_alphanumerique', 'libelle_unite', 'limite_qualite_parametre']
     df_mesures = mel_qualite_df[mesures_cols].drop_duplicates(subset=['code_prelevement', 'code_parametre']).reset_index(drop=True)
-
     
-    # 4. Table COMMUNES_RESEAU (Dimension) - Utilise mel_udi_df 
-    # RENOMMÉ : Conserve le nom 'communes_reseau' pour le fichier
-    communes_reseau_cols = [
-        'code_commune', 'nom_commune', 'code_reseau', 'nom_reseau', 'debut_alim' 
-    ]
+    communes_reseau_cols = ['code_commune', 'nom_commune', 'code_reseau', 'nom_reseau', 'debut_alim']
     df_communes_reseau = mel_udi_df[communes_reseau_cols].drop_duplicates().reset_index(drop=True)
 
     print("   -> Nettoyage et normalisation terminés.")
@@ -153,16 +155,17 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
         'parametres': df_parametres,
         'prelevements': df_prelevements,
         'resultats_mesures': df_mesures,
-        'communes_reseau': df_communes_reseau # Clé utilisée pour nommer le fichier communes_reseau.parquet
+        'communes_reseau': df_communes_reseau
     }
 
+
 # ----------------------------------------------------------------------
-# Orchestrateur Principal (Inchangé)
+# Orchestrateur Principal
 # ----------------------------------------------------------------------
 
 def main_cloud_ready():
     """
-    Orchestre le T de l'ETL : Lecture GCS (2 fichiers), Transformation, Écriture GCS (4 tables).
+    Orchestre le T de l'ETL : Lecture GCS (2 fichiers), Transformation, Écriture GCS (4 tables), Nettoyage GCS.
     """
     if not GCS_BUCKET_NAME or not GCP_PROJECT_ID:
         print("❌ Échec de l'étape de transformation: Les variables d'environnement sont manquantes.")
@@ -170,13 +173,20 @@ def main_cloud_ready():
 
     print(f"✅ Liste statique des codes INSEE de la MEL chargée : {len(MEL_COMMUNES_INSEE)} communes.") 
 
+    # Liste pour stocker les noms des fichiers bruts les plus récents (à conserver)
+    latest_raw_files = []
+
+    # ------------------------------------------------------
     # 1. Lecture des Données D'ENTRÉE (GCS)
+    # ------------------------------------------------------
     try:
         udi_object_name = get_latest_gcs_path(GCS_BUCKET_NAME, "udi_mel")
+        latest_raw_files.append(udi_object_name) # <-- Ajout à la liste des fichiers à garder
         df_udi = read_parquet_from_gcs(GCS_BUCKET_NAME, udi_object_name)
         print(f"   ✅ {len(df_udi)} enregistrements UDI bruts chargés.")
 
         qualite_object_name = get_latest_gcs_path(GCS_BUCKET_NAME, "qualite_eau")
+        latest_raw_files.append(qualite_object_name) # <-- Ajout à la liste des fichiers à garder
         df_qualite = read_parquet_from_gcs(GCS_BUCKET_NAME, qualite_object_name)
         print(f"   ✅ {len(df_qualite)} enregistrements de qualité bruts chargés.")
         
@@ -185,17 +195,20 @@ def main_cloud_ready():
         sys.exit(1)
 
 
+    # ------------------------------------------------------
     # 2. Transformation et Normalisation
+    # ------------------------------------------------------
     try:
         tables_dict = transform_and_normalize_data(df_qualite, df_udi)
         print("✅ Normalisation terminée. 4 tables prêtes pour le chargement.")
-
     except Exception as e:
         print(f"❌ Échec de la transformation/normalisation : {e}")
         sys.exit(1)
         
     
+    # ------------------------------------------------------
     # 3. Écriture des 4 tables de Sortie (GCS/processed)
+    # ------------------------------------------------------
     print("\n--- Écriture des 4 tables normalisées vers GCS/processed ---")
     
     for table_name, df in tables_dict.items():
@@ -204,6 +217,11 @@ def main_cloud_ready():
         except Exception as e:
             print(f"❌ Échec critique de l'écriture de la table {table_name}: {e}")
             sys.exit(1)
+
+    # ------------------------------------------------------
+    # 4. Nettoyage des anciennes données brutes
+    # ------------------------------------------------------
+    cleanup_old_gcs_files(GCS_BUCKET_NAME, latest_raw_files)
 
     print("--- Fin de l'Étape 2: Transformation terminée. ---")
 
