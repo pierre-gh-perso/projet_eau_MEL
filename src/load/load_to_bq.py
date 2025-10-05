@@ -130,7 +130,7 @@ def load_processed_data_to_bigquery(project_id: str, dataset_id: str, gcs_bucket
 
             # B. CHARGEMENT DANS BIGQUERY
             job_config = bigquery.LoadJobConfig(
-                write_disposition=write_mode, 
+                write_disposition=write_mode_object, 
             )
             
             # Utilisation de la méthode load_table_from_dataframe (plus flexible)
