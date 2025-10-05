@@ -7,7 +7,7 @@ import os
 import io
 from google.cloud import storage 
 from config import GCS_BUCKET_NAME, GCP_PROJECT_ID
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Set
 from datetime import datetime
 
 CRITERE_MOA_MEL = "MEL - MÉTROPOLE EUROP. DE LILLE"
