@@ -133,7 +133,7 @@ def load_processed_data_to_bigquery(project_id: str, dataset_id: str, gcs_bucket
                 write_disposition=write_mode_object, 
             )
             
-            # Utilisation de la méthode load_table_from_dataframe (plus flexible)
+            # load_table_from_dataframe
             load_job = client.load_table_from_dataframe(
                 df_to_load, 
                 table_id, 
@@ -141,7 +141,7 @@ def load_processed_data_to_bigquery(project_id: str, dataset_id: str, gcs_bucket
             )
             
             print(f"   -> Chargement BQ démarré. Job ID: {load_job.job_id}")
-            load_job.result()  # Attend la fin du job
+            load_job.result()
             
             print(f"   ✅ Table {table_name} chargée. {load_job.output_rows} lignes écrites.")
 

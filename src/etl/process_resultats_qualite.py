@@ -10,31 +10,13 @@ from config import GCS_BUCKET_NAME, GCP_PROJECT_ID
 from typing import Dict, Any, List
 from datetime import datetime
 
-# ----------------------------------------------------------------------
-# Liste statique des codes INSEE de la MEL (Inchangée)
-# ----------------------------------------------------------------------
-MEL_COMMUNES_INSEE = [
-    '59001', '59004', '59008', '59011', '59017', '59018', '59020', '59021', '59032', '59045', 
-    '59046', '59048', '59049', '59051', '59056', '59057', '59063', '59065', '59067', '59074', 
-    '59079', '59082', '59087', '59092', '59098', '59101', '59103', '59104', '59107', '59112', 
-    '59124', '59129', '59130', '59132', '59133', '59134', '59152', '59154', '59163', '59166', 
-    '59178', '59183', '59189', '59190', '59207', '59208', '59214', '59223', '59224', '59226', 
-    '59230', '59235', '59236', '59247', '59248', '59260', '59265', '59267', '59274', '59276', 
-    '59281', '59286', '59294', '59296', '59300', '59306', '59312', '59316', '59330', '59341', 
-    '59350', '59353', '59364', '59368', '59378', '59388', '59389', '59390', '59400', '59405', 
-    '59408', '59410', '59416', '59424', '59429', '59441', '59443', '59451', '59452', '59459', 
-    '59470', '59473', '59482', '59487', '59495', '59496', '59507', '59508', '59509', '59512', 
-    '59518', '59520', '59526', '59534', '59549', '59550', '59552', '59560', '59564', '59579', 
-    '59582', '59583', '59584', '59599', '59600', '59606', '59620', '59627', '59632', '59637', 
-    '59646', '59652', '59653', '59660', '59667', '59669', '59670', '59671', '59675', '59676', 
-    '59681', '59683', '59684', '59686', '59690', '59701', '59714', '59715' 
-]
+CRITERE_MOA_MEL = "MEL - MÉTROPOLE EUROP. DE LILLE"
 
-# Initialisation du client GCS (utilise ADC pour GitHub Actions)
+# Initialisation du client GCS
 storage_client = storage.Client()
 
 # ----------------------------------------------------------------------
-# Fonctions utilitaires GCS (AJOUT DE LA FONCTION DE NETTOYAGE)
+# Fonctions utilitaires GCS
 # ----------------------------------------------------------------------
 
 def get_latest_gcs_path(bucket_name: str, prefix: str, folder: str = "raw") -> str:
@@ -92,10 +74,10 @@ def cleanup_old_gcs_files(bucket_name: str, latest_object_names: List[str]):
     
     # 1. Lister tous les blobs bruts
     all_raw_blobs = list(bucket.list_blobs(prefix="raw/"))
-    
-    # Extraire uniquement les noms d'objets (ex: 'raw/qualite_eau_20251004_070622.parquet')
+
+    # Convertir la liste en ensemble pour une recherche rapide
     latest_blobs_to_keep = set(latest_object_names)
-    
+
     # 2. Identifier les fichiers à supprimer
     blobs_to_delete = [
         blob for blob in all_raw_blobs 
@@ -113,40 +95,75 @@ def cleanup_old_gcs_files(bucket_name: str, latest_object_names: List[str]):
         
     print(f"   ✅ Nettoyage GCS terminé. {len(blobs_to_delete)} anciens fichiers supprimés.")
 
+# ----------------------------------------------------------------------
+# Filtrage des Codes Communes par Critère MOA
+# ----------------------------------------------------------------------
+
+def get_commune_codes_from_moa(df: pd.DataFrame, moa_critere: str) -> Set[str]:
+    """
+    Filtre le DataFrame (qualité ou UDI) pour les enregistrements correspondant 
+    au critère de Maîtrise d'Ouvrage et retourne l'ensemble des codes communes uniques.
+    """
+    print(f"⚙️ Recherche des codes communes pour MoA: '{moa_critere}'")
+    
+    # 1. Normalisation pour une recherche robuste (minuscules, suppression espaces)
+    moa_critere_normalise = moa_critere.strip().lower()
+
+    # 2. Application du filtre dans Pandas
+    df['nom_moa_clean'] = df['nom_moa'].astype(str).str.strip().str.lower()
+    
+    # 3. Filtrage du DataFrame
+    df_filtre = df[df['nom_moa_clean'] == moa_critere_normalise]
+    
+    # 4. Extraction des codes communes uniques
+    codes_insee_set = set(df_filtre['code_commune'].astype(str).str.zfill(5))
+    
+    print(f"   ✅ {len(codes_insee_set)} codes communes uniques trouvés via MoA.")
+    
+    # 5. Nettoyage de la colonne temporaire
+    df.drop(columns=['nom_moa_clean'], inplace=True, errors='ignore')
+    
+    return codes_insee_set
 
 # ----------------------------------------------------------------------
-# Logique de Transformation et Normalisation (Inchangée)
+# Logique de Transformation et Normalisation 
 # ----------------------------------------------------------------------
 
-def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame, target_insee_codes: Set[str]) -> Dict[str, pd.DataFrame]:
     """
     Filtre, nettoie et normalise les données brutes en tables finales.
     """
     print("   -> Début du nettoyage et de la normalisation...")
+    if not target_insee_codes:
+        raise ValueError("La liste des codes INSEE cibles est vide. Arrêt du traitement.")
+
     # 1. Préparation et FILTRAGE des Résultats de Qualité (Table de faits principale)
     df_qualite['code_commune'] = df_qualite['code_commune'].astype(str).str.zfill(5)
-    mel_qualite_df = df_qualite[df_qualite['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
+    
+    mel_qualite_df = df_qualite[df_qualite['code_commune'].isin(target_insee_codes)].copy()
     print(f"   -> Enregistrements filtrés pour la MEL : {len(mel_qualite_df)}")
+    
     if mel_qualite_df.empty:
         raise ValueError("Aucun résultat de qualité trouvé pour les communes de la MEL après filtrage.")
+        
     mel_qualite_df['code_prelevement'] = mel_qualite_df['code_prelevement'].astype(str)
     mel_qualite_df['code_parametre'] = mel_qualite_df['code_parametre'].astype(str)
 
     # 2. FILTRAGE du DF UDI (pour les infos de réseau/commune)
     df_udi['code_commune'] = df_udi['code_commune'].astype(str).str.zfill(5)
-    mel_udi_df = df_udi[df_udi['code_commune'].isin(MEL_COMMUNES_INSEE)].copy()
+    mel_udi_df = df_udi[df_udi['code_commune'].isin(target_insee_codes)].copy()
 
-    # --- Construction des 4 tables (Filtrées et Dénormalisées) ---
+    # --- Construction des 4 tables ---
     params_cols = ['code_parametre', 'libelle_parametre', 'code_type_parametre', 'code_parametre_se', 'libelle_parametre_maj'] 
     df_parametres = mel_qualite_df[params_cols].drop_duplicates(subset=['code_parametre']).reset_index(drop=True)
     
-    prelevement_cols = ['code_prelevement', 'code_commune', 'date_prelevement', 'nom_uge', 'nom_distributeur', 'nom_moa', 'conclusion_conformite_prelevement', 'conformite_limites_bact_prelevement']
+    prelevement_cols = ['code_prelevement', 'code_commune', 'date_prelevement', 'conclusion_conformite_prelevement', 'conformite_limites_bact_prelevement']
     df_prelevements = mel_qualite_df[prelevement_cols].drop_duplicates(subset=['code_prelevement']).reset_index(drop=True)
     
     mesures_cols = ['code_prelevement', 'code_parametre', 'resultat_numerique', 'resultat_alphanumerique', 'libelle_unite', 'limite_qualite_parametre']
     df_mesures = mel_qualite_df[mesures_cols].drop_duplicates(subset=['code_prelevement', 'code_parametre']).reset_index(drop=True)
     
-    communes_reseau_cols = ['code_commune', 'nom_commune', 'code_reseau', 'nom_reseau', 'debut_alim']
+    communes_reseau_cols = ['code_commune', 'nom_commune', 'code_reseau', 'nom_reseau', 'nom_distributeur', 'nom_uge', 'nom_moa', 'debut_alim']
     df_communes_reseau = mel_udi_df[communes_reseau_cols].drop_duplicates().reset_index(drop=True)
 
     print("   -> Nettoyage et normalisation terminés.")
@@ -165,28 +182,27 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame)
 
 def main_cloud_ready():
     """
-    Orchestre le T de l'ETL : Lecture GCS (2 fichiers), Transformation, Écriture GCS (4 tables), Nettoyage GCS.
+    Orchestre le T de l'ETL : Lecture GCS (2 fichiers), Détermination des Codes MEL, 
+    Transformation, Écriture GCS (4 tables), Nettoyage GCS.
     """
     if not GCS_BUCKET_NAME or not GCP_PROJECT_ID:
         print("❌ Échec de l'étape de transformation: Les variables d'environnement sont manquantes.")
         sys.exit(1)
 
-    print(f"✅ Liste statique des codes INSEE de la MEL chargée : {len(MEL_COMMUNES_INSEE)} communes.") 
-
-    # Liste pour stocker les noms des fichiers bruts les plus récents (à conserver)
     latest_raw_files = []
+    df_udi, df_qualite = None, None
 
     # ------------------------------------------------------
     # 1. Lecture des Données D'ENTRÉE (GCS)
     # ------------------------------------------------------
     try:
         udi_object_name = get_latest_gcs_path(GCS_BUCKET_NAME, "udi_mel")
-        latest_raw_files.append(udi_object_name) # <-- Ajout à la liste des fichiers à garder
+        latest_raw_files.append(udi_object_name)
         df_udi = read_parquet_from_gcs(GCS_BUCKET_NAME, udi_object_name)
         print(f"   ✅ {len(df_udi)} enregistrements UDI bruts chargés.")
 
         qualite_object_name = get_latest_gcs_path(GCS_BUCKET_NAME, "qualite_eau")
-        latest_raw_files.append(qualite_object_name) # <-- Ajout à la liste des fichiers à garder
+        latest_raw_files.append(qualite_object_name)
         df_qualite = read_parquet_from_gcs(GCS_BUCKET_NAME, qualite_object_name)
         print(f"   ✅ {len(df_qualite)} enregistrements de qualité bruts chargés.")
         
@@ -194,20 +210,35 @@ def main_cloud_ready():
         print(f"❌ Échec de la lecture des fichiers bruts depuis GCS : {e}.")
         sys.exit(1)
 
-
     # ------------------------------------------------------
-    # 2. Transformation et Normalisation
+    # 2. DÉTERMINATION DYNAMIQUE DES CODES COMMUNES
     # ------------------------------------------------------
     try:
-        tables_dict = transform_and_normalize_data(df_qualite, df_udi)
+        mel_codes_insee = get_commune_codes_from_moa(df_udi, CRITERE_MOA_MEL)
+        
+        if not mel_codes_insee:
+            raise ValueError("Le filtrage par MoA n'a retourné aucun code commune.")
+            
+        print(f"✅ Codes INSEE de la MEL déterminés dynamiquement : {len(mel_codes_insee)} communes.")
+        
+    except Exception as e:
+        print(f"❌ Échec de la détermination des codes MEL : {e}")
+        sys.exit(1)
+
+    # ------------------------------------------------------
+    # 3. Transformation et Normalisation
+    # ------------------------------------------------------
+    try:
+        # ⚠️ CORRECTION : Passer mel_codes_insee en argument
+        tables_dict = transform_and_normalize_data(df_qualite, df_udi, mel_codes_insee) 
         print("✅ Normalisation terminée. 4 tables prêtes pour le chargement.")
     except Exception as e:
         print(f"❌ Échec de la transformation/normalisation : {e}")
         sys.exit(1)
-        
+            
     
     # ------------------------------------------------------
-    # 3. Écriture des 4 tables de Sortie (GCS/processed)
+    # 4. Écriture des 4 tables de Sortie (GCS/processed)
     # ------------------------------------------------------
     print("\n--- Écriture des 4 tables normalisées vers GCS/processed ---")
     
@@ -219,7 +250,7 @@ def main_cloud_ready():
             sys.exit(1)
 
     # ------------------------------------------------------
-    # 4. Nettoyage des anciennes données brutes
+    # 5. Nettoyage des anciennes données brutes
     # ------------------------------------------------------
     cleanup_old_gcs_files(GCS_BUCKET_NAME, latest_raw_files)
 
