@@ -214,7 +214,7 @@ def main_cloud_ready():
     # 2. DÉTERMINATION DYNAMIQUE DES CODES COMMUNES
     # ------------------------------------------------------
     try:
-        mel_codes_insee = get_commune_codes_from_moa(df_udi, CRITERE_MOA_MEL)
+        mel_codes_insee = get_commune_codes_from_moa(df_qualite, CRITERE_MOA_MEL)
         
         if not mel_codes_insee:
             raise ValueError("Le filtrage par MoA n'a retourné aucun code commune.")
