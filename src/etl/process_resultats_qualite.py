@@ -163,8 +163,19 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame,
     mesures_cols = ['code_prelevement', 'code_parametre', 'resultat_numerique', 'resultat_alphanumerique', 'libelle_unite', 'limite_qualite_parametre']
     df_mesures = mel_qualite_df[mesures_cols].drop_duplicates(subset=['code_prelevement', 'code_parametre']).reset_index(drop=True)
     
+    # Jointure pour obtenir les infos de réseau et commune
+    udi_dim_cols = ['code_commune', 'nom_commune', 'code_reseau', 'nom_reseau', 'debut_alim']
+    df_communes_udi = mel_udi_df[udi_dim_cols].drop_duplicates(subset=['code_commune']).set_index('code_commune')
+    qualite_dim_cols = ['code_commune', 'nom_distributeur', 'nom_uge', 'nom_moa']
+    df_org_info = mel_qualite_df[qualite_dim_cols].drop_duplicates().set_index('code_commune')
+    df_communes_reseau = df_communes_udi.merge(
+        df_org_info,
+        left_index=True,
+        right_index=True,
+        how='left'
+    ).reset_index()
     communes_reseau_cols = ['code_commune', 'nom_commune', 'code_reseau', 'nom_reseau', 'nom_distributeur', 'nom_uge', 'nom_moa', 'debut_alim']
-    df_communes_reseau = mel_udi_df[communes_reseau_cols].drop_duplicates().reset_index(drop=True)
+    df_communes_reseau = df_communes_reseau[communes_reseau_cols].drop_duplicates().reset_index(drop=True)
 
     print("   -> Nettoyage et normalisation terminés.")
     
