@@ -154,13 +154,13 @@ def transform_and_normalize_data(df_qualite: pd.DataFrame, df_udi: pd.DataFrame,
     mel_udi_df = df_udi[df_udi['code_commune'].isin(target_insee_codes)].copy()
 
     # --- Construction des 4 tables ---
-    params_cols = ['code_parametre', 'libelle_parametre', 'code_type_parametre', 'code_parametre_se', 'libelle_parametre_maj'] 
+    params_cols = ['code_parametre', 'libelle_parametre', 'code_type_parametre', 'code_parametre_se', 'libelle_parametre_maj', 'libelle_unite', 'limite_qualite_parametre'] 
     df_parametres = mel_qualite_df[params_cols].drop_duplicates(subset=['code_parametre']).reset_index(drop=True)
     
     prelevement_cols = ['code_prelevement', 'code_commune', 'date_prelevement', 'conclusion_conformite_prelevement', 'conformite_limites_bact_prelevement']
     df_prelevements = mel_qualite_df[prelevement_cols].drop_duplicates(subset=['code_prelevement']).reset_index(drop=True)
     
-    mesures_cols = ['code_prelevement', 'code_parametre', 'resultat_numerique', 'resultat_alphanumerique', 'libelle_unite', 'limite_qualite_parametre']
+    mesures_cols = ['code_prelevement', 'code_parametre', 'resultat_numerique', 'resultat_alphanumerique']
     df_mesures = mel_qualite_df[mesures_cols].drop_duplicates(subset=['code_prelevement', 'code_parametre']).reset_index(drop=True)
     
     # Jointure pour obtenir les infos de réseau et commune
