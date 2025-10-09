@@ -23,9 +23,8 @@ def load_codes_from_bigquery(table_id):
     print(f"-> Chargement des codes communes depuis BigQuery: {table_id}")
     query = f"SELECT DISTINCT code_insee FROM `{table_id}`"
     try:
-        # Authentification automatique (via google-github-actions/auth ou GOOGLE_APPLICATION_CREDENTIALS)
         df_codes = pandas_gbq.read_gbq(query, project_id=GCP_PROJECT_ID) 
-        codes_list = df_codes['code_insee'].astype(str).tolist()
+        codes_list = df_codes['code_reseau'].astype(str).tolist()
         print(f"-> {len(codes_list)} codes uniques récupérés.")
         return set(codes_list)
     except Exception as e:
@@ -36,7 +35,6 @@ def load_geojson_from_gcs(bucket_name, object_name):
     """Charge le fichier GeoJSON brut depuis GCS (utilise l'authentification par défaut)."""
     print(f"-> Chargement du GeoJSON brut depuis GCS: {object_name}")
     try:
-        # Utilise storage.Client() pour l'authentification implicite
         storage_client = storage.Client(project=GCP_PROJECT_ID)
         blob = storage_client.bucket(bucket_name).blob(object_name)
         geojson_data_string = blob.download_as_text()
@@ -49,7 +47,6 @@ def save_geojson_to_gcs(geojson_data, bucket_name, object_name):
     """Enregistre le fichier GeoJSON filtré sur GCS (utilise l'authentification par défaut)."""
     print(f"-> Enregistrement du GeoJSON filtré vers GCS: {object_name}")
     try:
-        # Utilise storage.Client() pour l'authentification implicite
         storage_client = storage.Client(project=GCP_PROJECT_ID)
         blob = storage_client.bucket(bucket_name).blob(object_name)
         blob.upload_from_string(
@@ -67,9 +64,7 @@ def save_geojson_to_gcs(geojson_data, bucket_name, object_name):
 # =================================================================
 
 def main():
-    # 1. Vérification (simplifiée pour l'environnement de CI)
-    # Dans le pipeline CI/CD, l'authentification est gérée par l'action GitHub,
-    # donc pas besoin de vérifier le chemin du fichier local D:\...
+    # 1. Vérification de l'environnement
     print("Démarrage du pré-traitement GeoJSON...")
         
     # 2. Récupération des codes communes pertinents
