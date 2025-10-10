@@ -21,10 +21,10 @@ GEOJSON_DEST_OBJECT = "Geojson/communes_filtrees.geojson"
 def load_codes_from_bigquery(table_id):
     """Charge les codes communes depuis la table BigQuery (utilise l'authentification par défaut)."""
     print(f"-> Chargement des codes communes depuis BigQuery: {table_id}")
-    query = f"SELECT DISTINCT code_insee FROM `{table_id}`"
+    query = f"SELECT DISTINCT code_commune FROM `{table_id}`"
     try:
         df_codes = pandas_gbq.read_gbq(query, project_id=GCP_PROJECT_ID) 
-        codes_list = df_codes['code_reseau'].astype(str).tolist()
+        codes_list = df_codes['code_commune'].astype(str).tolist()
         print(f"-> {len(codes_list)} codes uniques récupérés.")
         return set(codes_list)
     except Exception as e:
