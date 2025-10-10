@@ -8,25 +8,38 @@ from io import BytesIO
 import gcsfs # Assurez-vous d'avoir 'pip install gcsfs'
 from config import GCS_BUCKET_NAME 
 
-# Liste des codes INSEE des communes de la Métropole Européenne de Lille (MEL)
-# Cette liste statique est utilisée pour filtrer les données du Nord (59).
-# Note : Pour un projet réel, cette liste pourrait être chargée dynamiquement depuis une API.
-MEL_COMMUNES_INSEE = [
-    '59001', '59004', '59008', '59011', '59017', '59018', '59020', '59021', '59032', '59045', 
-    '59046', '59048', '59049', '59051', '59056', '59057', '59063', '59065', '59067', '59074', 
-    '59079', '59082', '59087', '59092', '59098', '59101', '59103', '59104', '59107', '59112', 
-    '59124', '59129', '59130', '59132', '59133', '59134', '59152', '59154', '59163', '59166', 
-    '59178', '59183', '59189', '59190', '59207', '59208', '59214', '59223', '59224', '59226', 
-    '59230', '59235', '59236', '59247', '59248', '59260', '59265', '59267', '59274', '59276', 
-    '59281', '59286', '59294', '59296', '59300', '59306', '59312', '59316', '59330', '59341', 
-    '59350', '59353', '59364', '59368', '59378', '59388', '59389', '59390', '59400', '59405', 
-    '59408', '59410', '59416', '59424', '59429', '59441', '59443', '59451', '59452', '59459', 
-    '59470', '59473', '59482', '59487', '59495', '59496', '59507', '59508', '59509', '59512', 
-    '59518', '59520', '59526', '59534', '59549', '59550', '59552', '59560', '59564', '59579', 
-    '59582', '59583', '59584', '59599', '59600', '59606', '59620', '59627', '59632', '59637', 
-    '59646', '59652', '59653', '59660', '59667', '59669', '59670', '59671', '59675', '59676', 
-    '59681', '59683', '59684', '59686', '59690', '59701', '59714', '59715' 
-]
+# --- NOUVELLE FONCTION : Chargement dynamique des codes INSEE ---
+
+def load_mel_communes_insee_from_gcs() -> list:
+    """
+    Charge la liste des codes INSEE de la MEL depuis le fichier CSV stocké sur GCS.
+    """
+    GCS_CSV_PATH = f"gs://{GCS_BUCKET_NAME}/Geojson/base_villes_mel.csv"
+    print(f"🔄 Lecture des codes INSEE depuis GCS : {GCS_CSV_PATH}")
+
+    try:
+        # Pandas peut lire directement le CSV depuis GCS si 'gcsfs' est installé et l'authentification est correcte
+        df_communes = pd.read_csv(GCS_CSV_PATH)
+        
+        # Récupération des codes uniques de la colonne "COMMUNE_INSEE"
+        insee_codes = df_communes['COMMUNE_INSEE'].astype(str).str.zfill(5).unique().tolist()
+        
+        if not insee_codes:
+            raise ValueError("Le fichier CSV est vide ou la colonne 'COMMUNE_INSEE' ne contient aucune donnée.")
+            
+        print(f"✅ {len(insee_codes)} codes INSEE uniques chargés depuis GCS.")
+        return insee_codes
+
+    except Exception as e:
+        print(f"❌ Erreur critique lors du chargement des codes INSEE depuis GCS: {e}")
+        # Termine l'exécution si la liste critique ne peut être chargée
+        sys.exit(1)
+
+
+# ----------------------------------------------------------------------
+# Remplacement de la liste statique par un placeholder, car elle sera chargée dynamiquement
+# ----------------------------------------------------------------------
+MEL_COMMUNES_INSEE = [] # La liste sera remplie dans main()
 
 
 def get_latest_gcs_file(bucket_name: str, prefix: str) -> str:
@@ -54,7 +67,6 @@ def get_latest_gcs_file(bucket_name: str, prefix: str) -> str:
     ]
     
     if not target_files:
-        # L'erreur que vous avez vue dans le log
         raise FileNotFoundError(f"Aucun fichier avec le préfixe '{prefix}' n'a été trouvé dans le dossier 'gs://{gcs_dir}'.")
         
     # Triez par nom (basé sur l'horodatage dans le nom de fichier) et prenez le plus récent
@@ -70,11 +82,16 @@ def main():
     Fonction principale pour filtrer les données UDI brutes pour les communes de la MEL,
     lisant depuis GCS et écrivant vers GCS.
     """
+    global MEL_COMMUNES_INSEE
+    
     if not GCS_BUCKET_NAME or "YOUR_DEFAULT_BUCKET_NAME" in GCS_BUCKET_NAME:
         print("❌ Échec de la transformation : GCS_BUCKET_NAME est mal configuré.")
         sys.exit(1)
-
-    print(f"✅ Liste statique des codes INSEE de la MEL chargée : {len(MEL_COMMUNES_INSEE)} communes.")
+        
+    # ⭐️ NOUVEAU : Chargement dynamique de la liste des communes avant le reste du traitement
+    MEL_COMMUNES_INSEE = load_mel_communes_insee_from_gcs()
+    
+    print(f"✅ Liste dynamique des codes INSEE de la MEL chargée : {len(MEL_COMMUNES_INSEE)} communes.")
 
     # 1. Chargement du dernier fichier de données brutes depuis GCS
     try:
@@ -83,18 +100,17 @@ def main():
         
         # Pandas lit directement le fichier Parquet depuis GCS
         raw_df = pd.read_parquet(latest_raw_gcs_path)
-        print(f"   -> Nombre total d'enregistrements bruts chargés : {len(raw_df)}")
+        print(f"   -> Nombre total d'enregistrements bruts chargés : {len(raw_df)}")
 
     except FileNotFoundError as e:
         print(f"Erreur : {e}")
-        # L'étape d'extraction a échoué à écrire dans GCS ou l'accès est refusé.
         sys.exit(1)
     except Exception as e:
         print(f"Erreur lors de la lecture Parquet depuis GCS: {e}")
         sys.exit(1)
 
 
-    # 2. Filtrage des données
+    # 2. Filtrage des données (Utilise la liste fraîchement chargée)
     
     # Assurez-vous que la colonne 'code_commune' est bien au format String 5 chiffres
     raw_df['code_commune'] = raw_df['code_commune'].astype(str).str.zfill(5)
@@ -106,7 +122,6 @@ def main():
 
 
     # 3. Sauvegarde de la liste filtrée dans GCS/processed
-    # Ce fichier est essentiel pour l'étape de transformation des résultats
     
     # Le chemin de destination sur GCS
     gcs_processed_path = f"gs://{GCS_BUCKET_NAME}/processed/communes_mel_udi.parquet"
@@ -125,4 +140,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main_cloud_ready()
+    main() # Changement de main_cloud_ready à main car cette fonction n'existe pas dans le script fourni

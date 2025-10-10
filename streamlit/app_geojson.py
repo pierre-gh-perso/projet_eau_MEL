@@ -19,7 +19,7 @@ GCS_BUCKET_NAME = "qualite_eau"
 GCP_PROJECT_ID = "qualite-eau-473812"
 GCP_KEY_FILE_PATH = r"D:\Pierre\qualite_eau_mel\data\qualite-eau-473812-09ac7a86b2ab.json"
 
-GEOJSON_OBJECT_NAME = "Geojson/communes-5m.geojson"
+GEOJSON_OBJECT_NAME = "Geojson/communes_filtrees.geojson"
 DEPARTMENT_CODE_TO_FILTER = 59
 
 # =================================================================
