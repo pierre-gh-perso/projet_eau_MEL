@@ -1,12 +1,25 @@
 # requirements.txt
 
-# --- Core Dependencies ---
-requests
+# Librairies Streamlit et utilitaires
+streamlit
 pandas
-pyarrow
+requests
+time
+datetime
 
-
-# --- Google Cloud Dependencies ---
+# Dépendances Google Cloud
 google-cloud-storage
 google-cloud-bigquery
-gcsfs
+pandas-gbq # Nécessaire pour prepare_geojson.py
+gcsfs      # Souvent nécessaire pour la lecture/écriture gs://
+
+# Librairies de visualisation
+folium
+streamlit-folium
+
+# ⭐️ CORRECTION : Dépendances Geospatiales manquantes ⭐️
+# Ajouter geopandas et ses dépendances clés
+geopandas
+shapely
+fiona
+pyproj
