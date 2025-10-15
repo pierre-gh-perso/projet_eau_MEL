@@ -1,25 +1,32 @@
 # requirements.txt
 
-# Librairies Streamlit et utilitaires
+# ===================================================
+# 1. APPLICATION STREAMLIT & VISUALISATION
+# ===================================================
 streamlit
-pandas
-requests
-time
-datetime
-
-# Dépendances Google Cloud
-google-cloud-storage
-google-cloud-bigquery
-pandas-gbq # Nécessaire pour prepare_geojson.py
-gcsfs      # Souvent nécessaire pour la lecture/écriture gs://
-
-# Librairies de visualisation
 folium
 streamlit-folium
 
-# ⭐️ CORRECTION : Dépendances Geospatiales manquantes ⭐️
-# Ajouter geopandas et ses dépendances clés
+# Dépendances Geospatiales (pour geopandas)
+# Sont nécessaires pour que l'installation réussisse sur le cloud.
 geopandas
 shapely
 fiona
 pyproj
+
+# ===================================================
+# 2. ETL (Extraction, Transformation, Chargement)
+# ===================================================
+requests  # Pour les appels à l'API Hubeau
+
+# Manipulation de données
+pandas
+
+# Moteur de Parquet (Crucial pour la lecture/écriture sur GCS)
+pyarrow 
+
+# Dépendances Google Cloud
+google-cloud-storage    # Pour interagir avec GCS (méthodes natives)
+google-cloud-bigquery   # Pour interagir avec BigQuery (méthodes natives)
+gcsfs                   # Pour permettre à Pandas de lire/écrire les chemins gs://
+pandas-gbq              # Pour la fonction pandas_gbq.read_gbq (dans prepare_geojson.py)
