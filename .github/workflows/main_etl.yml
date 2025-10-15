@@ -5,8 +5,8 @@ name: ETL Eau Potable - Hubeau vers BigQuery
 # -----------------------------------------------------
 on:
   # 1. Déclenchement au 'push' sur la branche 'main' (ou 'master')
-  push:
-    branches: [ main ]
+  #push:
+    #branches: [ main ]
 
   # 2. Déclenchement planifié (récurrent)
   schedule:
